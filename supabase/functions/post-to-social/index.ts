@@ -26,17 +26,24 @@ Deno.serve(async (req) => {
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const userToken = authHeader.replace("Bearer ", "");
 
-  // Allow service_role calls (from retry-failed-posts cron)
-  const isServiceRole = userToken === supabaseKey;
-
-  if (!isServiceRole) {
-    // Verify user JWT
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || supabaseKey;
-    const authClient = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
-    const { data: { user }, error: authErr } = await authClient.auth.getUser();
-    if (authErr || !user) {
+  // Verify caller: service_role key OR authenticated user JWT
+  // Service role key check (exact match with auto-injected env)
+  if (userToken !== supabaseKey) {
+    // Not service_role — verify as user JWT
+    try {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+      const authClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: { user }, error: authErr } = await authClient.auth.getUser();
+      if (authErr || !user) {
+        // Last resort: check if JWT payload has service_role
+        const payload = JSON.parse(atob(userToken.split(".")[1]));
+        if (payload.role !== "service_role") {
+          return respond(401, { error: "Invalid or expired token" });
+        }
+      }
+    } catch {
       return respond(401, { error: "Invalid or expired token" });
     }
   }
@@ -220,11 +227,13 @@ async function postToLinkedIn(
   if (token.page_id) {
     author = `urn:li:organization:${token.page_id}`;
   } else {
-    // Fetch person URN from /me
-    const meRes = await fetch("https://api.linkedin.com/rest/me", { headers });
-    if (!meRes.ok) throw new Error(`LinkedIn /me failed: ${meRes.status}`);
+    // Fetch person ID from /v2/userinfo (works with openid scope)
+    const meRes = await fetch("https://api.linkedin.com/v2/userinfo", {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    if (!meRes.ok) throw new Error(`LinkedIn /v2/userinfo failed: ${meRes.status}`);
     const meData = await meRes.json();
-    author = `urn:li:person:${meData.id}`;
+    author = `urn:li:person:${meData.sub}`;
   }
 
   let imageUrn: string | undefined;

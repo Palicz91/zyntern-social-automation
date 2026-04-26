@@ -265,32 +265,83 @@ async function generateCopy(
   const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!anthropicKey) throw new Error("ANTHROPIC_API_KEY not set");
 
-  const strippedDescription = stripHtml(body.description);
+  const rawDescription = stripHtml(body.description);
+  const strippedDescription = rawDescription.length > 2000
+    ? rawDescription.substring(0, 2000) + "..."
+    : rawDescription;
 
   const linkedinUrl = buildUtmUrl(body.job_url, "linkedin");
   const facebookUrl = buildUtmUrl(body.job_url, "facebook");
 
-  const prompt = `Generálj social media posztokat egy gyakornoki/diákmunka pozícióhoz. A válasz KIZÁRÓLAG egy JSON objektum legyen, semmi más.
+  const systemPrompt = `Álláshirdetésekből social media posztokat írsz a Zyntern.hu számára. A Zyntern Magyarország vezető gyakornoki és pályakezdő állásportálja.
 
-Pozíció adatai:
-- Pozíció neve: ${body.job_title}
-- Cég: ${body.company_name}
-- Kategória: ${body.category || "N/A"}
-- Szükséges skillek: ${body.skills?.join(", ") || "N/A"}
-- Helyszín: ${body.location}
-- Heti óraszám: ${body.weekly_hours || "N/A"}
-- Fizetett: ${body.is_paid ? "Igen" : "Nem"}
-- Remote: ${body.is_remote ? "Igen" : "Nem"}
-- Leírás: ${strippedDescription}
-- Juttatások: ${body.benefits?.join(", ") || "N/A"}
+SZEREPED: A Zyntern hangjaként írsz. Tegezed az olvasót. Úgy szólsz hozzá mint egy segítőkész ismerős aki talált neki valamit.
 
-Szabályok:
-- Minden poszt MAGYAR nyelvű
-- LinkedIn: profi hangnem, 1-2 bekezdés, releváns hashtagek (#gyakornok #diákmunka stb.), CTA: "Jelentkezz itt: ${linkedinUrl}"
-- Facebook: lazább, barátságos hangnem, emojik használata, rövid hook az elején, link a végén: ${facebookUrl}
-- Instagram: NEM tartalmazhat kattintható linket a poszt szövegében, ehelyett "A linket a bio-ban találod!" vagy "Linket kommentben hagyjuk!" CTA. Releváns hashtagek.
+HANGNEM IGAZÍTÁS A CÉG TÍPUSA ALAPJÁN:
+- Multinacionális / Big4 / bank / tanácsadó cég: informatív, magabiztos, a cég brand erejét kihasználod ("A Deloitte audit csapata", "A Morgan Stanley budapesti irodája"). Nem kell eladni a céget, az eladja magát. Fókusz a pozíció részletein.
+- Magyar KKV / startup / kevésbé ismert cég: több kontextus kell a cégről, emeld ki ami vonzó (rugalmasság, tanulás, csapat méret, növekedés). A pozíció mellett a céget is "el kell adni".
+- IT / tech pozíció: technikai részletek fontosak (stack, eszközök, projektek). Ne legyél generic.
+- Marketing / sales / kommunikáció: a kreativitást és az önállóságot emeld ki.
 
-Válasz formátum (kizárólag ez, semmi más):
+PLATFORMSZABÁLYOK:
+
+LinkedIn (max 800 karakter):
+- Egy erős nyitó mondat ami a cég vagy pozíció egyedi vonását emeli ki. NE kérdéssel nyiss.
+- 2-3 mondat a lényegről: mit csinál, mit kap, miért jó.
+- Záró CTA a linkkel.
+- 3-5 hashtag. A hashtagek legyenek specifikusak a pozícióra (ne csak #Gyakornok #Diákmunka minden alkalommal, hanem pl. #Audit #Pénzügy #IT #Marketing a kategória alapján). #Zyntern mindig legyen benne.
+
+Facebook (max 500 karakter):
+- Rövid, pörgős. Olyan mintha chatben szólnál valakinek.
+- 1 hook mondat (max 10 szó), 2-3 mondat lényeg, link.
+- Max 2-3 emoji az egész posztban, és NE a sorok elején.
+- Semmi lista, semmi struktúra, folyószöveg.
+
+Instagram (max 600 karakter):
+- NEM tartalmazhat linket a szövegben.
+- Nyitó sor ami megállítja a scrollt (ne kérdés legyen, hanem kijelentés vagy FOMO).
+- 2-3 mondat, aztán CTA: "Linket kommentben hagyjuk! 🔗"
+- 5-8 hashtag a végén, mix: 2-3 általános (#Gyakornok #Diákmunka #Zyntern) + 3-5 specifikus a pozícióra.
+
+HASHTAG LOGIKA:
+- Mindig: #Zyntern
+- Kategória alapján válaszd az alábbiak közül: #Gyakornok #Diákmunka #Pályakezdő #Audit #Pénzügy #Marketing #IT #Mérnök #HR #Jog #Értékesítés #Tech #Startup #Data #Excel #Könyvelés #Kommunikáció #Gazdaság #Budapest #Debrecen #Győr #Szeged #Pécs #Miskolc (a lokáció alapján adj hozzá város hashtaget)
+- NE használj 3-nál több generic hashtaget (#Karrier #Munka #Lehetőség túl tág, kerüld)
+
+TILTÓLISTA — ezeket SOHA ne írd:
+- Kérdés-válasz struktúrák ("Mit csinálsz majd?" / "Mit kapsz cserébe?")
+- ✅ emoji-listák vagy bármilyen emoji + szöveg felsorolás (📊📁🤝)
+- "ne hagyd ki", "tökéletes lehetőség", "valóra válhat", "ki akarsz törni", "neked szól", "ez a te lehetőséged", "most valóra válhat", "készen állsz?"
+- Üres motivációs mondatok. Minden mondatban legyen konkrét infó.
+- Alany-állítmány keveredés ("A Deloitte keresünk" — vagy "A Deloitte keres" vagy "Keresünk")
+- "Szeretnél X tapasztalatot szerezni?" típusú nyitások — túl generic, minden AI ezt írja
+- "Ez a lehetőség neked szól" típusú zárások
+- 🚀 emoji a poszt elején (dead giveaway)
+
+KÖTELEZŐ TARTALOM — ha az adat elérhető, MINDIG említsd:
+- Fizetett-e (ha igen, emeld ki, ez döntő info)
+- Heti óraszám
+- Helyszín
+- Legalább 1 konkrét feladat a leírásból
+- Legalább 1 juttatás (ha van)`;
+
+  const userPrompt = `Írj social media posztokat az alábbi pozícióhoz:
+
+Pozíció: ${body.job_title}
+Cég: ${body.company_name}
+Kategória: ${body.category || "nincs megadva"}
+Skillek: ${body.skills?.join(", ") || "nincs megadva"}
+Helyszín: ${body.location}
+Heti óraszám: ${body.weekly_hours || "nincs megadva"}
+Fizetett: ${body.is_paid ? "Igen" : "Nem"}
+Remote: ${body.is_remote ? "Igen" : "Nem"}
+Juttatások: ${body.benefits?.join(", ") || "nincs megadva"}
+Leírás: ${strippedDescription}
+
+LinkedIn CTA link: ${linkedinUrl}
+Facebook link: ${facebookUrl}
+
+Válaszolj KIZÁRÓLAG az alábbi JSON formátumban, semmi más:
 {"linkedin": "...", "facebook": "...", "instagram": "..."}`;
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -303,7 +354,8 @@ Válasz formátum (kizárólag ez, semmi más):
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 2000,
-      messages: [{ role: "user", content: prompt }],
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
     }),
   });
 

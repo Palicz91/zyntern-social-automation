@@ -72,8 +72,17 @@ export default function Accounts() {
     return tokens.find((t) => t.platform === platformKey);
   };
 
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+
   const connectUrl = (oauthParam: string) =>
     `${SUPABASE_URL}/functions/v1/oauth?platform=${oauthParam}`;
+
+  const disconnectPlatform = async (platformKey: string) => {
+    const dbPlatform = platformKey === "instagram" ? "facebook_page" : platformKey;
+    await supabase.from("social_tokens").delete().eq("platform", dbPlatform);
+    setDisconnecting(null);
+    fetchTokens();
+  };
 
   if (loading) {
     return (
@@ -184,11 +193,53 @@ export default function Accounts() {
                     {isConnected ? "Újrakapcsolás" : "Bekötés"}
                   </a>
                 )}
+
+                {/* Disconnect button */}
+                {isConnected && p.oauthParam && (
+                  <button
+                    onClick={() => setDisconnecting(p.key)}
+                    className="text-sm font-medium px-3 py-2 rounded-lg border border-gray-300 text-gray-500 hover:border-red-300 hover:text-red-600 transition"
+                  >
+                    Leválasztás
+                  </button>
+                )}
               </div>
             </div>
           );
         })}
       </div>
+
+      {/* Disconnect confirm modal */}
+      {disconnecting && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">
+              Fiók leválasztása
+            </h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Biztosan leválasztod a{" "}
+              <strong>
+                {PLATFORMS.find((p) => p.key === disconnecting)?.label}
+              </strong>{" "}
+              fiókot? A posztolás nem fog működni amíg újra nem kötöd.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDisconnecting(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              >
+                Mégse
+              </button>
+              <button
+                onClick={() => disconnectPlatform(disconnecting)}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
+              >
+                Leválasztás
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

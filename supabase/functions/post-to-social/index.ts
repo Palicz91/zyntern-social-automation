@@ -16,8 +16,32 @@ Deno.serve(async (req) => {
     return respond(405, { error: "Method not allowed" });
   }
 
+  // Auth: require valid JWT (authenticated user or service_role)
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return respond(401, { error: "Authorization required" });
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const userToken = authHeader.replace("Bearer ", "");
+
+  // Allow service_role calls (from retry-failed-posts cron)
+  const isServiceRole = userToken === supabaseKey;
+
+  if (!isServiceRole) {
+    // Verify user JWT
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY") || supabaseKey;
+    const authClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authErr } = await authClient.auth.getUser();
+    if (authErr || !user) {
+      return respond(401, { error: "Invalid or expired token" });
+    }
+  }
+
+  // Use service_role for DB operations
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   try {
@@ -43,11 +67,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Set status to posting
-    await supabase
+    // Optimistic lock: only update if still approved (prevents double-post)
+    const { data: locked, error: lockErr } = await supabase
       .from("social_posts")
       .update({ status: "posting" })
-      .eq("id", social_post_id);
+      .eq("id", social_post_id)
+      .eq("status", "approved") // only if still approved
+      .select("id")
+      .maybeSingle();
+
+    if (lockErr || !locked) {
+      return respond(409, { error: "Post already being processed" });
+    }
 
     const text = post.modified_text !== null ? post.modified_text : post.original_text;
     const job = post.jobs;
@@ -389,7 +420,7 @@ async function postToInstagram(
   try {
     const commentParams = new URLSearchParams({
       access_token: token.access_token,
-      message: `Jelentkezz itt: ${jobUrl}`,
+      message: `Jelentkezz itt: ${jobUrl}${jobUrl.includes("?") ? "&" : "?"}utm_source=instagram&utm_medium=social&utm_campaign=job_post`,
     });
 
     await fetch(

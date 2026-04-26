@@ -46,7 +46,9 @@ function handleInitiate(url: URL): Response {
 
   if (platform === "linkedin") {
     const clientId = Deno.env.get("LINKEDIN_CLIENT_ID") || "PLACEHOLDER";
-    const scopes = ["w_member_social", "w_organization_social", "r_organization_social"].join(" ");
+    // w_member_social: available to all apps (post as member)
+    // w_organization_social + r_organization_social: requires LinkedIn partner review (Phase 2)
+    const scopes = ["openid", "profile", "w_member_social"].join(" ");
 
     const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
     authUrl.searchParams.set("response_type", "code");

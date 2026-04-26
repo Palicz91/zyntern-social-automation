@@ -112,6 +112,7 @@ export default function JobDetail() {
     const currentText = editTexts[post.platform];
     const isModified = currentText !== post.original_text;
 
+    // 1. Update DB status to approved
     await supabase
       .from("social_posts")
       .update({
@@ -121,6 +122,15 @@ export default function JobDetail() {
         approved_at: new Date().toISOString(),
       })
       .eq("id", post.id);
+
+    // 2. Trigger posting via Edge Function
+    try {
+      await supabase.functions.invoke("post-to-social", {
+        body: { social_post_id: post.id },
+      });
+    } catch (err) {
+      console.error("Post-to-social call failed:", err);
+    }
 
     setApproving(null);
   };

@@ -6,6 +6,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import JobDetail from "./pages/JobDetail";
 import Analytics from "./pages/Analytics";
+import Accounts from "./pages/Accounts";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -44,6 +45,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/job/:jobId" element={<JobDetail />} />
+        <Route path="/accounts" element={<Accounts />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

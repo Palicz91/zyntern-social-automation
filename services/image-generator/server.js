@@ -3,7 +3,6 @@ const puppeteer = require("puppeteer-core");
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 const path = require("path");
-const crypto = require("crypto");
 
 // --- Config ---
 const PORT = 3847;

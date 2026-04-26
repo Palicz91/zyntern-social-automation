@@ -65,7 +65,6 @@ function handleInitiate(url: URL): Response {
   const scopes = [
     "pages_manage_posts",
     "pages_read_engagement",
-    "instagram_basic",
     "instagram_content_publish",
   ].join(",");
 

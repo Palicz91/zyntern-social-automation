@@ -86,7 +86,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 4. Insert job
+    // 4. Sanitize types before insert
+    const weeklyHours = typeof body.weekly_hours === "number" ? body.weekly_hours
+      : typeof body.weekly_hours === "string" ? parseInt(body.weekly_hours, 10) || null
+      : null;
+    const isPaid = body.is_paid === true || body.is_paid === "true";
+    const isRemote = body.is_remote === true || body.is_remote === "true";
+    const skills = Array.isArray(body.skills) ? body.skills : body.skills ? [String(body.skills)] : null;
+    const benefits = Array.isArray(body.benefits) ? body.benefits : body.benefits ? [String(body.benefits)] : null;
+    const deadline = body.deadline && /^\d{4}-\d{2}-\d{2}/.test(String(body.deadline))
+      ? String(body.deadline).substring(0, 10) : null;
+
     const { data: job, error: jobError } = await supabase
       .from("jobs")
       .insert({
@@ -94,22 +104,35 @@ Deno.serve(async (req) => {
         job_title: body.job_title,
         company_name: body.company_name,
         category: body.category || null,
-        skills: body.skills || null,
+        skills,
         location: body.location,
-        weekly_hours: body.weekly_hours || null,
-        is_paid: body.is_paid ?? false,
-        is_remote: body.is_remote ?? false,
+        weekly_hours: weeklyHours,
+        is_paid: isPaid,
+        is_remote: isRemote,
         logo_url: body.logo_url,
         cover_image_url: body.cover_image_url || null,
         job_url: body.job_url,
         description: body.description,
-        benefits: body.benefits || null,
-        deadline: body.deadline || null,
+        benefits,
+        deadline,
       })
       .select("id")
       .single();
 
     if (jobError || !job) {
+      // Handle race condition: unique constraint violation = duplicate
+      if (jobError?.code === "23505") {
+        const { data: existingJob } = await supabase
+          .from("jobs").select("id").eq("external_job_id", body.job_id).maybeSingle();
+        return new Response(
+          JSON.stringify({
+            status: "error",
+            message: "Ez a job_id már feldolgozás alatt van",
+            post_id: existingJob?.id,
+          }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       console.error("Job insert failed:", jobError);
       return new Response(
         JSON.stringify({ status: "error", message: "Szerver hiba" }),

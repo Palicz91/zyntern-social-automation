@@ -134,18 +134,28 @@ Deno.serve(async (req) => {
       const newRetryCount = (post.retry_count || 0) + 1;
       const isFinal = newRetryCount >= 3;
 
+      // Exponential backoff: 1min, 5min, 15min
+      const retryDelays = [60, 300, 900]; // seconds
+      const nextRetryAt = isFinal
+        ? null
+        : new Date(
+            Date.now() + (retryDelays[newRetryCount - 1] || 900) * 1000,
+          ).toISOString();
+
       await supabase
         .from("social_posts")
         .update({
-          status: isFinal ? "failed" : "approved", // back to approved for retry
+          status: "failed",
           error_message: errorMsg,
           retry_count: newRetryCount,
+          next_retry_at: nextRetryAt,
         })
         .eq("id", social_post_id);
 
       console.error(
         `[${post.platform}] Post failed (attempt ${newRetryCount}/3):`,
-        errorMsg
+        errorMsg,
+        nextRetryAt ? `Next retry at ${nextRetryAt}` : "Final failure",
       );
 
       return respond(isFinal ? 200 : 200, {

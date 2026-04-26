@@ -37,6 +37,8 @@ Deno.serve(async (req) => {
     );
   }
 
+  const startTime = Date.now();
+
   try {
     // 1. Auth validation
     const authHeader = req.headers.get("Authorization");
@@ -161,23 +163,59 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 7. Return success
+    // 7. Log + return success
+    const responseBody = {
+      status: "ok",
+      post_id: job.id,
+      message: "Tartalom generálva, jóváhagyásra vár.",
+    };
+
+    await logRequest(supabase, startTime, 200, body, responseBody);
+
     return new Response(
-      JSON.stringify({
-        status: "ok",
-        post_id: job.id,
-        message: "Tartalom generálva, jóváhagyásra vár.",
-      }),
+      JSON.stringify(responseBody),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("Unhandled error:", err);
+
+    // Best-effort logging
+    try {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      const sb = createClient(supabaseUrl, supabaseKey);
+      await logRequest(sb, startTime, 500, null, { error: String(err) });
+    } catch { /* ignore */ }
+
     return new Response(
       JSON.stringify({ status: "error", message: "Szerver hiba" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
+
+async function logRequest(
+  supabase: ReturnType<typeof createClient>,
+  startTime: number,
+  statusCode: number,
+  requestBody: Record<string, unknown> | null,
+  responseBody: Record<string, unknown>,
+) {
+  try {
+    await supabase.from("api_logs").insert({
+      endpoint: "publish-job",
+      method: "POST",
+      status_code: statusCode,
+      request_summary: requestBody
+        ? `job_id=${requestBody.job_id} company=${requestBody.company_name} title=${requestBody.job_title}`
+        : null,
+      response_summary: JSON.stringify(responseBody).substring(0, 500),
+      duration_ms: Date.now() - startTime,
+    });
+  } catch (e) {
+    console.warn("Failed to write api_log:", e);
+  }
+}
 
 // --- Content generation ---
 

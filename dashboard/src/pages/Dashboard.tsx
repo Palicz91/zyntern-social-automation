@@ -82,8 +82,23 @@ export default function Dashboard() {
     );
   }
 
+  const failedCount = jobs.reduce(
+    (n, j) => n + j.social_posts.filter((p) => p.status === "failed").length,
+    0,
+  );
+
   return (
     <div>
+      {failedCount > 0 && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
+          <span className="text-red-600 font-semibold text-sm">
+            {failedCount} sikertelen posztolás
+          </span>
+          <span className="text-red-500 text-sm">
+            — nyisd meg a részleteket az újrapróbáláshoz
+          </span>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Posztok</h1>
         <div className="flex gap-2 flex-wrap">

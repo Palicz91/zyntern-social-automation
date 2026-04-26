@@ -142,6 +142,29 @@ export default function JobDetail() {
     }
   };
 
+  const retryPost = async (post: SocialPost) => {
+    setApproving(post.id);
+    // Reset retry count and re-approve
+    await supabase
+      .from("social_posts")
+      .update({
+        status: "approved",
+        retry_count: 0,
+        error_message: null,
+        next_retry_at: null,
+      })
+      .eq("id", post.id);
+
+    try {
+      await supabase.functions.invoke("post-to-social", {
+        body: { social_post_id: post.id },
+      });
+    } catch (err) {
+      console.error("Retry failed:", err);
+    }
+    setApproving(null);
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center py-20">
@@ -285,11 +308,22 @@ export default function JobDetail() {
                     : `${PLATFORM_LABELS[activeTab]}: a link automatikusan hozzáadva`}
                 </p>
 
-                {/* Error message */}
+                {/* Error message + retry */}
                 {activePost.error_message && (
-                  <p className="text-sm text-red-600 bg-red-50 p-2 rounded mt-2">
-                    {activePost.error_message}
-                  </p>
+                  <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <p className="text-sm text-red-600">
+                      {activePost.error_message}
+                    </p>
+                    {activePost.status === "failed" && (
+                      <button
+                        onClick={() => retryPost(activePost)}
+                        disabled={approving === activePost.id}
+                        className="mt-2 text-sm font-medium text-red-700 hover:text-red-900 underline"
+                      >
+                        Újrapróbálás
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {/* Posted info */}

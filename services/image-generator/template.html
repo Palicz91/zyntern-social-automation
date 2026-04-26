@@ -1,6 +1,300 @@
-<!-- Zyntern job card template — rendered by Puppeteer -->
 <!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"></head>
-<body></body>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 1080px;
+    height: 1080px;
+    font-family: 'DM Sans', Arial, Helvetica, sans-serif;
+    background: #FFFFFF;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .cover {
+    width: 100%;
+    height: 340px;
+    background: linear-gradient(135deg, #3A1078 0%, #6C2BA1 40%, #9B3DB7 100%);
+    background-size: cover;
+    background-position: center;
+    position: relative;
+  }
+
+  .cover-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(58,16,120,0.3) 0%, rgba(58,16,120,0.6) 100%);
+  }
+
+  .content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0 80px;
+    position: relative;
+    margin-top: -70px;
+  }
+
+  .logo-wrap {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: #FFFFFF;
+    border: 5px solid #FFFFFF;
+    box-shadow: 0 8px 32px rgba(58,16,120,0.18);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  .logo-wrap img {
+    width: 100px;
+    height: 100px;
+    object-fit: contain;
+  }
+
+  .logo-fallback {
+    font-size: 42px;
+    font-weight: 700;
+    color: #6C2BA1;
+    text-align: center;
+    line-height: 1.1;
+  }
+
+  .company-name {
+    font-size: 26px;
+    font-weight: 500;
+    color: #6B7280;
+    margin-bottom: 16px;
+    text-align: center;
+  }
+
+  .job-title {
+    font-size: 46px;
+    font-weight: 700;
+    color: #1F2937;
+    text-align: center;
+    line-height: 1.2;
+    margin-bottom: 28px;
+    max-width: 900px;
+  }
+
+  .category-badge {
+    display: inline-block;
+    background: #6C2BA1;
+    color: #FFFFFF;
+    font-size: 18px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    padding: 10px 28px;
+    border-radius: 100px;
+    margin-bottom: 32px;
+  }
+
+  .skills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+    margin-bottom: 40px;
+    max-width: 800px;
+  }
+
+  .skill-tag {
+    font-size: 18px;
+    font-weight: 500;
+    color: #6C2BA1;
+    border: 2px solid #D8B4FE;
+    padding: 8px 22px;
+    border-radius: 100px;
+    background: rgba(108,43,161,0.04);
+  }
+
+  .meta-row {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 0;
+  }
+
+  .meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 20px;
+    font-weight: 500;
+    color: #4B5563;
+  }
+
+  .meta-icon {
+    width: 24px;
+    height: 24px;
+    fill: #6C2BA1;
+  }
+
+  .paid-badge {
+    background: #FFD93D;
+    color: #1F2937;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 6px 18px;
+    border-radius: 100px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .remote-badge {
+    background: #10B981;
+    color: #FFFFFF;
+    font-size: 16px;
+    font-weight: 700;
+    padding: 6px 18px;
+    border-radius: 100px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .watermark {
+    position: absolute;
+    bottom: 32px;
+    right: 40px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0.7;
+  }
+
+  .watermark-text {
+    font-size: 18px;
+    font-weight: 600;
+    color: #9B3DB7;
+    letter-spacing: 0.5px;
+  }
+
+  .accent-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: linear-gradient(90deg, #3A1078, #6C2BA1, #9B3DB7, #FF4B6E, #FFD93D);
+  }
+</style>
+</head>
+<body>
+
+<div class="cover" id="cover">
+  <div class="cover-overlay"></div>
+</div>
+
+<div class="content">
+  <div class="logo-wrap" id="logoWrap">
+    <img id="logoImg" src="" alt="" style="display:none">
+    <div class="logo-fallback" id="logoFallback" style="display:none"></div>
+  </div>
+
+  <div class="company-name" id="companyName"></div>
+  <div class="job-title" id="jobTitle"></div>
+  <div class="category-badge" id="categoryBadge" style="display:none"></div>
+  <div class="skills" id="skills"></div>
+
+  <div class="meta-row" id="metaRow">
+    <div class="meta-item" id="locationMeta">
+      <svg class="meta-icon" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 010-5 2.5 2.5 0 010 5z"/></svg>
+      <span id="locationText"></span>
+    </div>
+    <div class="meta-item" id="hoursMeta" style="display:none">
+      <svg class="meta-icon" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/></svg>
+      <span id="hoursText"></span>
+    </div>
+  </div>
+</div>
+
+<div class="watermark">
+  <span class="watermark-text">zyntern.com</span>
+</div>
+
+<div class="accent-bar"></div>
+
+<script>
+function render(data) {
+  // Cover image
+  if (data.cover_image_url) {
+    document.getElementById('cover').style.backgroundImage = `url(${data.cover_image_url})`;
+  }
+
+  // Logo
+  const img = document.getElementById('logoImg');
+  const fallback = document.getElementById('logoFallback');
+
+  if (data.logo_url) {
+    img.src = data.logo_url;
+    img.style.display = 'block';
+    img.onerror = function() {
+      img.style.display = 'none';
+      fallback.textContent = data.company_name.substring(0, 2).toUpperCase();
+      fallback.style.display = 'flex';
+    };
+  } else {
+    fallback.textContent = data.company_name.substring(0, 2).toUpperCase();
+    fallback.style.display = 'flex';
+  }
+
+  // Text fields
+  document.getElementById('companyName').textContent = data.company_name;
+  document.getElementById('jobTitle').textContent = data.job_title;
+
+  // Category
+  if (data.category) {
+    const badge = document.getElementById('categoryBadge');
+    badge.textContent = data.category;
+    badge.style.display = 'inline-block';
+  }
+
+  // Skills
+  const skillsEl = document.getElementById('skills');
+  if (data.skills && data.skills.length) {
+    data.skills.forEach(s => {
+      const tag = document.createElement('div');
+      tag.className = 'skill-tag';
+      tag.textContent = s;
+      skillsEl.appendChild(tag);
+    });
+  }
+
+  // Location
+  document.getElementById('locationText').textContent = data.location || '';
+
+  // Hours
+  if (data.weekly_hours) {
+    document.getElementById('hoursMeta').style.display = 'flex';
+    document.getElementById('hoursText').textContent = data.weekly_hours + ' óra/hét';
+  }
+
+  // Badges
+  const metaRow = document.getElementById('metaRow');
+  if (data.is_paid) {
+    const b = document.createElement('span');
+    b.className = 'paid-badge';
+    b.textContent = 'FIZETETT';
+    metaRow.appendChild(b);
+  }
+  if (data.is_remote) {
+    const b = document.createElement('span');
+    b.className = 'remote-badge';
+    b.textContent = 'REMOTE';
+    metaRow.appendChild(b);
+  }
+}
+</script>
+</body>
 </html>

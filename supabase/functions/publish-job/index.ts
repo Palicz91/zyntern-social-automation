@@ -270,11 +270,17 @@ async function generateImage(body: JobBody): Promise<string | null> {
     return null;
   }
 
+  const imageApiKey = Deno.env.get("IMAGE_API_KEY") || "";
+
   try {
     const response = await fetch(`${imageServiceUrl}/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": imageApiKey,
+      },
       body: JSON.stringify({
+        job_id: body.job_id,
         job_title: body.job_title,
         company_name: body.company_name,
         location: body.location,
@@ -282,6 +288,9 @@ async function generateImage(body: JobBody): Promise<string | null> {
         is_paid: body.is_paid,
         is_remote: body.is_remote,
         category: body.category,
+        skills: body.skills,
+        weekly_hours: body.weekly_hours,
+        cover_image_url: body.cover_image_url,
       }),
     });
 

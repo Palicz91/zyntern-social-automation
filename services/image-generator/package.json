@@ -1,0 +1,8 @@
+{
+  "name": "zyntern-image-generator",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

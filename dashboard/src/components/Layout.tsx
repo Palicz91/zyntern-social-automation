@@ -14,6 +14,7 @@ export default function Layout({
   const nav = [
     { to: "/", label: "Dashboard" },
     { to: "/accounts", label: "Fiókok" },
+    { to: "/prompt-quality", label: "Prompt minőség" },
     { to: "/analytics", label: "Analytics" },
   ];
 

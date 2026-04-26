@@ -52,7 +52,15 @@ Deno.serve(async (req) => {
     }
 
     // 2. Body validation
-    const body = await req.json();
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response(
+        JSON.stringify({ status: "error", message: "Érvénytelen JSON body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     for (const field of REQUIRED_FIELDS) {
       if (!body[field]) {

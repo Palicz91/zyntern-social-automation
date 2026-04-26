@@ -156,7 +156,7 @@ app.post("/generate", async (req, res) => {
     res.json({ image_url: imageUrl });
   } catch (err) {
     console.error("Render failed:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Image generation failed" });
   } finally {
     activeRenders--;
   }

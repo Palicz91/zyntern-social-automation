@@ -94,12 +94,12 @@ async function refreshLinkedIn(
 
 async function refreshFacebook(
   supabase: ReturnType<typeof createClient>,
-  token: { access_token: string; platform: string },
+  token: { access_token: string; platform: string; page_id: string | null },
 ) {
   const appId = Deno.env.get("FACEBOOK_APP_ID")!;
   const appSecret = Deno.env.get("FACEBOOK_APP_SECRET")!;
 
-  // Facebook long-lived token refresh
+  // Step 1: Refresh user long-lived token
   const url = new URL("https://graph.facebook.com/v25.0/oauth/access_token");
   url.searchParams.set("grant_type", "fb_exchange_token");
   url.searchParams.set("client_id", appId);
@@ -112,14 +112,35 @@ async function refreshFacebook(
   }
 
   const data = await res.json();
+  const userToken = data.access_token;
   const expiresAt = new Date(
     Date.now() + (data.expires_in || 5184000) * 1000,
   ).toISOString();
 
+  // Step 2: Re-fetch page token (page tokens derived from long-lived user tokens don't expire)
+  let pageToken = userToken;
+  if (token.page_id) {
+    try {
+      const pagesRes = await fetch(
+        "https://graph.facebook.com/v25.0/me/accounts",
+        { headers: { Authorization: `Bearer ${userToken}` } },
+      );
+      if (pagesRes.ok) {
+        const pagesData = await pagesRes.json();
+        const page = pagesData.data?.find((p: { id: string }) => p.id === token.page_id);
+        if (page) {
+          pageToken = page.access_token;
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to refresh page token, using user token:", e);
+    }
+  }
+
   await supabase
     .from("social_tokens")
     .update({
-      access_token: data.access_token,
+      access_token: pageToken,
       expires_at: expiresAt,
       updated_at: new Date().toISOString(),
     })

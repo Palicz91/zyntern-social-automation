@@ -40,7 +40,9 @@ function handleInitiate(url: URL): Response {
   const redirectUri = Deno.env.get("OAUTH_REDIRECT_URL") ||
     `${Deno.env.get("SUPABASE_URL")}/functions/v1/oauth/callback`;
 
-  const state = platform;
+  // CSRF: state = platform + random nonce (validated on callback)
+  const nonce = crypto.randomUUID().substring(0, 8);
+  const state = `${platform}_${nonce}`;
 
   if (platform === "linkedin") {
     const clientId = Deno.env.get("LINKEDIN_CLIENT_ID") || "PLACEHOLDER";
@@ -96,16 +98,19 @@ async function handleCallback(url: URL): Promise<Response> {
   const redirectUri = Deno.env.get("OAUTH_REDIRECT_URL") ||
     `${supabaseUrl}/functions/v1/oauth/callback`;
 
+  // Parse platform from state (format: "platform_nonce")
+  const platform = state.split("_")[0];
+
   try {
-    if (state === "linkedin") {
+    if (platform === "linkedin") {
       await handleLinkedInCallback(supabase, code, redirectUri);
-    } else if (state === "facebook") {
+    } else if (platform === "facebook") {
       await handleFacebookCallback(supabase, code, redirectUri);
     } else {
       return redirectToDashboard("error=invalid_state");
     }
 
-    return redirectToDashboard(`success=${state}`);
+    return redirectToDashboard(`success=${platform}`);
   } catch (err) {
     console.error(`OAuth callback error (${state}):`, err);
     const msg = err instanceof Error ? err.message : "unknown";
@@ -231,7 +236,8 @@ async function handleFacebookCallback(
 
   // Step 3: Get page access token (never expires if user token is long-lived)
   const pagesRes = await fetch(
-    `https://graph.facebook.com/v25.0/me/accounts?access_token=${userToken}`,
+    "https://graph.facebook.com/v25.0/me/accounts",
+    { headers: { Authorization: `Bearer ${userToken}` } },
   );
 
   let pageId: string | null = null;
@@ -251,7 +257,8 @@ async function handleFacebookCallback(
   if (pageId) {
     try {
       const igRes = await fetch(
-        `https://graph.facebook.com/v25.0/${pageId}?fields=instagram_business_account&access_token=${pageToken}`,
+        `https://graph.facebook.com/v25.0/${pageId}?fields=instagram_business_account`,
+        { headers: { Authorization: `Bearer ${pageToken}` } },
       );
       if (igRes.ok) {
         const igData = await igRes.json();

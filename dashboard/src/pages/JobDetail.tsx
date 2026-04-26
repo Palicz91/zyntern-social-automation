@@ -297,7 +297,7 @@ export default function JobDetail() {
                       }))
                     }
                     className="w-full min-h-[200px] p-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-zyntern-purple focus:border-transparent resize-y"
-                    disabled={activePost.status !== "pending"}
+                    disabled={activePost.status === "posted" || activePost.status === "posting"}
                   />
                 )}
 

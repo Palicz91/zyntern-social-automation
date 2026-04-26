@@ -49,7 +49,7 @@ Deno.serve(async (req) => {
       .update({ status: "posting" })
       .eq("id", social_post_id);
 
-    const text = post.modified_text || post.original_text;
+    const text = post.modified_text !== null ? post.modified_text : post.original_text;
     const job = post.jobs;
 
     // Get platform token
@@ -185,9 +185,16 @@ async function postToLinkedIn(
     "X-Restli-Protocol-Version": "2.0.0",
   };
 
-  const author = token.page_id
-    ? `urn:li:organization:${token.page_id}`
-    : "urn:li:person:me";
+  let author: string;
+  if (token.page_id) {
+    author = `urn:li:organization:${token.page_id}`;
+  } else {
+    // Fetch person URN from /me
+    const meRes = await fetch("https://api.linkedin.com/rest/me", { headers });
+    if (!meRes.ok) throw new Error(`LinkedIn /me failed: ${meRes.status}`);
+    const meData = await meRes.json();
+    author = `urn:li:person:${meData.id}`;
+  }
 
   let imageUrn: string | undefined;
 

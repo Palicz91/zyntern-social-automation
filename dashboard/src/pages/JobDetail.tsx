@@ -13,6 +13,8 @@ interface SocialPost {
   approved_at: string | null;
   posted_at: string | null;
   error_message: string | null;
+  scheduled_at?: string | null;
+  priority?: number;
 }
 
 interface Job {
@@ -40,16 +42,18 @@ const PLATFORM_ICONS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
   approved: "bg-blue-100 text-blue-800 border-blue-200",
+  queued: "bg-indigo-100 text-indigo-800 border-indigo-200",
   posting: "bg-purple-100 text-purple-800 border-purple-200",
   posted: "bg-green-100 text-green-800 border-green-200",
   failed: "bg-red-100 text-red-800 border-red-200",
+  skipped: "bg-gray-100 text-gray-600 border-gray-200",
 };
 
 export default function JobDetail() {
   const { jobId } = useParams<{ jobId: string }>();
   const [job, setJob] = useState<Job | null>(null);
   const [posts, setPosts] = useState<SocialPost[]>([]);
-  const [activeTab, setActiveTab] = useState("linkedin");
+  const [activeTab, setActiveTab] = useState("");
   const [editTexts, setEditTexts] = useState<Record<string, string>>({});
   const [showOriginal, setShowOriginal] = useState<Record<string, boolean>>({});
   const [approving, setApproving] = useState<string | null>(null);
@@ -75,6 +79,7 @@ export default function JobDetail() {
         texts[p.platform] = p.modified_text || p.original_text;
       });
       setEditTexts(texts);
+      setActiveTab((prev) => prev || postsRes.data[0]?.platform || "");
     }
     setLoading(false);
   };
@@ -109,29 +114,18 @@ export default function JobDetail() {
 
   const approvePost = async (post: SocialPost) => {
     setApproving(post.id);
-    const currentText = editTexts[post.platform];
-    const isModified = currentText !== post.original_text;
+    const currentText = editTexts[post.platform] || post.original_text;
 
-    // 1. Update DB status to approved
-    await supabase
-      .from("social_posts")
-      .update({
-        status: "approved",
-        modified_text: isModified ? currentText : null,
-        approved_by: "dashboard",
-        approved_at: new Date().toISOString(),
-      })
-      .eq("id", post.id);
+    const { error } = await supabase.rpc("approve_social_post", {
+      p_post_id: post.id,
+      p_text: currentText,
+    });
 
-    // 2. Trigger posting via Edge Function
-    try {
-      await supabase.functions.invoke("post-to-social", {
-        body: { social_post_id: post.id },
-      });
-    } catch (err) {
-      console.error("Post-to-social call failed:", err);
+    if (error) {
+      console.error("Approve failed:", error);
     }
 
+    await fetchData();
     setApproving(null);
   };
 
@@ -144,24 +138,43 @@ export default function JobDetail() {
 
   const retryPost = async (post: SocialPost) => {
     setApproving(post.id);
-    // Reset retry count and re-approve
-    await supabase
-      .from("social_posts")
-      .update({
-        status: "approved",
-        retry_count: 0,
-        error_message: null,
-        next_retry_at: null,
-      })
-      .eq("id", post.id);
+    const currentText = editTexts[post.platform] || post.original_text;
 
-    try {
-      await supabase.functions.invoke("post-to-social", {
-        body: { social_post_id: post.id },
-      });
-    } catch (err) {
-      console.error("Retry failed:", err);
+    const { error } = await supabase.rpc("approve_social_post", {
+      p_post_id: post.id,
+      p_text: currentText,
+    });
+
+    if (error) {
+      console.error("Retry failed:", error);
     }
+
+    await fetchData();
+    setApproving(null);
+  };
+
+  const publishNow = async (post: SocialPost) => {
+    setApproving(post.id);
+
+    const { error: rpcErr } = await supabase.rpc("publish_now", {
+      p_post_id: post.id,
+    });
+
+    if (rpcErr) {
+      console.error("Publish now failed:", rpcErr);
+      setApproving(null);
+      return;
+    }
+
+    const { error: invokeErr } = await supabase.functions.invoke("post-to-social", {
+      body: { social_post_id: post.id },
+    });
+
+    if (invokeErr) {
+      console.error("Post-to-social invoke failed:", invokeErr);
+    }
+
+    await fetchData();
     setApproving(null);
   };
 
@@ -314,7 +327,15 @@ export default function JobDetail() {
                     <p className="text-sm text-red-600">
                       {activePost.error_message}
                     </p>
-                    {activePost.status === "failed" && (
+                    {activePost.error_message.includes("Nincs bekötött") && (
+                      <Link
+                        to="/accounts"
+                        className="mt-2 inline-block text-sm font-medium text-blue-600 hover:text-blue-800 underline"
+                      >
+                        Fiók bekötése
+                      </Link>
+                    )}
+                    {activePost.status === "failed" && !activePost.error_message.includes("Nincs bekötött") && (
                       <button
                         onClick={() => retryPost(activePost)}
                         disabled={approving === activePost.id}
@@ -349,8 +370,33 @@ export default function JobDetail() {
 
                 {activePost.status === "approved" && (
                   <p className="mt-4 text-sm text-blue-600">
-                    Jóváhagyva — közzététel hamarosan
+                    Jóváhagyva — közzététel folyamatban
                   </p>
+                )}
+
+                {activePost.status === "queued" && (
+                  <div className="mt-4 flex items-center gap-3">
+                    <p className="text-sm text-indigo-600">
+                      Sorban áll — ütemezve: {activePost.scheduled_at
+                        ? new Date(activePost.scheduled_at).toLocaleString("hu-HU")
+                        : "hamarosan"}
+                    </p>
+                    <button
+                      onClick={() => publishNow(activePost)}
+                      disabled={approving === activePost.id}
+                      className="text-sm font-medium text-zyntern-purple hover:text-zyntern-deep underline disabled:opacity-50"
+                    >
+                      {approving === activePost.id ? "Közzététel..." : "Azonnali közzététel"}
+                    </button>
+                  </div>
+                )}
+
+                {activePost.status === "skipped" && (
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-500">
+                      Kihagyva{activePost.error_message ? `: ${activePost.error_message}` : ""}
+                    </p>
+                  </div>
                 )}
               </div>
             )}

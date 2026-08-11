@@ -1,0 +1,16 @@
+[Unit]
+Description=Zyntern Image Generator Service
+After=network.target
+
+[Service]
+Type=simple
+User=claude-bot
+WorkingDirectory=/home/claude-bot/zyntern-social-automation/services/image-generator
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/home/claude-bot/.zyntern-env
+
+[Install]
+WantedBy=multi-user.target

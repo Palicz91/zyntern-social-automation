@@ -1,5 +1,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const ALLOWED_IMAGE_HOSTS = new Set([
+  "bnumwujvaribzfexpmmc.supabase.co",
+  "lh3.googleusercontent.com",
+  "logo.clearbit.com",
+  "img.logo.dev",
+]);
+
+function isAllowedImageHost(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      ALLOWED_IMAGE_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -26,10 +43,19 @@ Deno.serve(async (req) => {
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const userToken = authHeader.replace("Bearer ", "");
 
-  // Verify caller: service_role key OR authenticated user JWT
-  // Service role key check (exact match with auto-injected env)
-  if (userToken !== supabaseKey) {
-    // Not service_role — verify as user JWT
+  // Verify caller: service_role key (constant-time compare) OR authenticated user JWT
+  const tokenBytes = new TextEncoder().encode(userToken);
+  const keyBytes = new TextEncoder().encode(supabaseKey);
+  let isServiceRole = false;
+  if (tokenBytes.length === keyBytes.length) {
+    try {
+      isServiceRole = crypto.subtle.timingSafeEqual(tokenBytes, keyBytes);
+    } catch {
+      isServiceRole = false;
+    }
+  }
+
+  if (!isServiceRole) {
     try {
       const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
       const authClient = createClient(supabaseUrl, anonKey, {
@@ -37,11 +63,7 @@ Deno.serve(async (req) => {
       });
       const { data: { user }, error: authErr } = await authClient.auth.getUser();
       if (authErr || !user) {
-        // Last resort: check if JWT payload has service_role
-        const payload = JSON.parse(atob(userToken.split(".")[1]));
-        if (payload.role !== "service_role") {
-          return respond(401, { error: "Invalid or expired token" });
-        }
+        return respond(401, { error: "Invalid or expired token" });
       }
     } catch {
       return respond(401, { error: "Invalid or expired token" });
@@ -109,7 +131,7 @@ Deno.serve(async (req) => {
         .update({
           status: "failed",
           error_message: `Nincs bekötött ${post.platform} fiók`,
-          retry_count: 3, // Skip retries for missing token
+          next_retry_at: null,
         })
         .eq("id", social_post_id);
 
@@ -118,6 +140,15 @@ Deno.serve(async (req) => {
         message: `Nincs bekötött ${post.platform} fiók`,
         dry_run_payload: dryRunLog,
       });
+    }
+
+    // Validate image URL to prevent SSRF
+    const safeImageUrl = post.image_url && isAllowedImageHost(post.image_url)
+      ? post.image_url
+      : null;
+
+    if (post.image_url && !safeImageUrl) {
+      console.warn(`Blocked image fetch from disallowed host: ${post.image_url}`);
     }
 
     // Attempt posting
@@ -129,7 +160,7 @@ Deno.serve(async (req) => {
           platformPostId = await postToLinkedIn(
             token,
             text,
-            post.image_url,
+            safeImageUrl,
             job.job_url
           );
           break;
@@ -137,14 +168,14 @@ Deno.serve(async (req) => {
           platformPostId = await postToFacebookPage(
             token,
             text,
-            post.image_url
+            safeImageUrl
           );
           break;
         case "instagram":
           platformPostId = await postToInstagram(
             token,
             text,
-            post.image_url,
+            safeImageUrl,
             job.job_url
           );
           break;
@@ -238,7 +269,6 @@ async function postToLinkedIn(
 
   let imageUrn: string | undefined;
 
-  // Upload image if available
   if (imageUrl) {
     try {
       // Step 1: Initialize upload
@@ -266,7 +296,7 @@ async function postToLinkedIn(
           const imgBlob = await imgRes.blob();
 
           // Step 3: Upload to LinkedIn
-          await fetch(uploadUrl, {
+          const uploadRes = await fetch(uploadUrl, {
             method: "PUT",
             headers: {
               Authorization: `Bearer ${token.access_token}`,
@@ -274,6 +304,11 @@ async function postToLinkedIn(
             },
             body: imgBlob,
           });
+
+          if (!uploadRes.ok) {
+            console.warn(`LinkedIn image PUT failed: ${uploadRes.status}`);
+            imageUrn = undefined;
+          }
         }
       }
     } catch (e) {

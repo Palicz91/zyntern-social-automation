@@ -2,10 +2,26 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 // Called by pg_cron every minute — retries failed posts with scheduled retry time
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // T2.7: Reap stuck posting rows (timed out with no confirmation)
+  await supabase
+    .from("social_posts")
+    .update({
+      status: "failed",
+      error_message: "Publishing timed out, no confirmation from platform",
+      next_retry_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+    })
+    .eq("status", "posting")
+    .lt("updated_at", new Date(Date.now() - 10 * 60 * 1000).toISOString());
 
   // Find posts due for retry
   const { data: posts, error } = await supabase
@@ -54,6 +70,16 @@ Deno.serve(async () => {
         result: data.status || "unknown",
       });
     } catch (err) {
+      // T2.6: Restore failed status so the post isn't stranded at "approved"
+      await supabase
+        .from("social_posts")
+        .update({
+          status: "failed",
+          error_message: err instanceof Error ? err.message : "Retry fetch failed",
+          next_retry_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        })
+        .eq("id", post.id);
+
       const msg = err instanceof Error ? err.message : "unknown";
       results.push({ id: post.id, platform: post.platform, result: `error: ${msg}` });
     }

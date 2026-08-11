@@ -18,9 +18,11 @@ interface Job {
 const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-100 text-yellow-800",
   approved: "bg-blue-100 text-blue-800",
+  queued: "bg-indigo-100 text-indigo-800",
   posting: "bg-purple-100 text-purple-800",
   posted: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
+  skipped: "bg-gray-100 text-gray-600",
 };
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -29,7 +31,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   instagram: "Instagram",
 };
 
-type StatusFilter = "all" | "pending" | "approved" | "posted" | "failed";
+type StatusFilter = "all" | "pending" | "approved" | "queued" | "posted" | "failed" | "skipped";
 
 export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -70,6 +72,11 @@ export default function Dashboard() {
   const filteredJobs =
     filter === "all"
       ? jobs
+      : filter === "failed"
+      ? jobs.filter((j) =>
+          j.social_posts.length === 0 ||
+          j.social_posts.some((p) => p.status === "failed")
+        )
       : jobs.filter((j) =>
           j.social_posts.some((p) => p.status === filter)
         );
@@ -86,13 +93,16 @@ export default function Dashboard() {
     (n, j) => n + j.social_posts.filter((p) => p.status === "failed").length,
     0,
   );
+  const orphanedCount = jobs.filter((j) => j.social_posts.length === 0).length;
 
   return (
     <div>
-      {failedCount > 0 && (
+      {(failedCount > 0 || orphanedCount > 0) && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
           <span className="text-red-600 font-semibold text-sm">
-            {failedCount} sikertelen posztolás
+            {failedCount > 0 && `${failedCount} sikertelen posztolás`}
+            {failedCount > 0 && orphanedCount > 0 && " · "}
+            {orphanedCount > 0 && `${orphanedCount} árva job (posztok nélkül)`}
           </span>
           <span className="text-red-500 text-sm">
             — nyisd meg a részleteket az újrapróbáláshoz
@@ -102,7 +112,7 @@ export default function Dashboard() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Posztok</h1>
         <div className="flex gap-2 flex-wrap">
-          {(["all", "pending", "approved", "posted", "failed"] as const).map(
+          {(["all", "pending", "approved", "queued", "posted", "failed", "skipped"] as const).map(
             (s) => (
               <button
                 key={s}

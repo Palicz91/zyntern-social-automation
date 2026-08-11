@@ -13,6 +13,7 @@ export default function Layout({
 
   const nav = [
     { to: "/", label: "Dashboard" },
+    { to: "/queue", label: "Sor" },
     { to: "/accounts", label: "Fiókok" },
     { to: "/prompt-quality", label: "Prompt minőség" },
     { to: "/analytics", label: "Analytics" },

@@ -8,6 +8,7 @@ import JobDetail from "./pages/JobDetail";
 import Analytics from "./pages/Analytics";
 import PromptQuality from "./pages/PromptQuality";
 import Accounts from "./pages/Accounts";
+import Queue from "./pages/Queue";
 import Layout from "./components/Layout";
 
 export default function App() {
@@ -47,6 +48,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/job/:jobId" element={<JobDetail />} />
         <Route path="/accounts" element={<Accounts />} />
+        <Route path="/queue" element={<Queue />} />
         <Route path="/prompt-quality" element={<PromptQuality />} />
         <Route path="/analytics" element={<Analytics />} />
         <Route path="*" element={<Navigate to="/" replace />} />

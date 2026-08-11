@@ -3,7 +3,11 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // Called by pg_cron daily — refreshes tokens expiring within 7 days
 
 Deno.serve(async (req) => {
-  // Allow cron calls (no auth check for internal trigger)
+  const cronSecret = Deno.env.get("CRON_SECRET");
+  if (!cronSecret || req.headers.get("x-cron-secret") !== cronSecret) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabase = createClient(supabaseUrl, supabaseKey);
@@ -19,7 +23,15 @@ Deno.serve(async (req) => {
     .lt("expires_at", sevenDaysFromNow)
     .gt("expires_at", new Date().toISOString());
 
-  if (error || !tokens || tokens.length === 0) {
+  if (error) {
+    console.error("Failed to query tokens:", error);
+    return new Response(
+      JSON.stringify({ status: "error", message: "Failed to query tokens", detail: error.message }),
+      { status: 500, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  if (!tokens || tokens.length === 0) {
     return new Response(
       JSON.stringify({ status: "ok", message: "No tokens need refresh" }),
       { headers: { "Content-Type": "application/json" } },

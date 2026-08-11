@@ -35,8 +35,6 @@ const PLATFORMS = [
   },
 ];
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-
 export default function Accounts() {
   const [tokens, setTokens] = useState<TokenStatus[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,13 +71,32 @@ export default function Accounts() {
   };
 
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const [connecting, setConnecting] = useState<string | null>(null);
 
-  const connectUrl = (oauthParam: string) =>
-    `${SUPABASE_URL}/functions/v1/oauth?platform=${oauthParam}`;
+  const startOAuth = async (oauthParam: string) => {
+    setConnecting(oauthParam);
+    try {
+      const { data, error } = await supabase.functions.invoke("oauth-start", {
+        body: { platform: oauthParam },
+      });
+      if (error || !data?.url) {
+        console.error("OAuth start failed:", error || "No URL returned");
+        setConnecting(null);
+        return;
+      }
+      window.location.href = data.url;
+    } catch (err) {
+      console.error("OAuth start error:", err);
+      setConnecting(null);
+    }
+  };
 
   const disconnectPlatform = async (platformKey: string) => {
     const dbPlatform = platformKey === "instagram" ? "facebook_page" : platformKey;
-    await supabase.from("social_tokens").delete().eq("platform", dbPlatform);
+    const { error } = await supabase.rpc("delete_social_token", { p_platform: dbPlatform });
+    if (error) {
+      console.error("Disconnect failed:", error);
+    }
     setDisconnecting(null);
     fetchTokens();
   };
@@ -182,16 +199,21 @@ export default function Accounts() {
 
                 {/* Connect/reconnect button */}
                 {p.oauthParam && (
-                  <a
-                    href={connectUrl(p.oauthParam)}
-                    className={`text-sm font-medium px-4 py-2 rounded-lg transition ${
+                  <button
+                    onClick={() => startOAuth(p.oauthParam!)}
+                    disabled={connecting === p.oauthParam}
+                    className={`text-sm font-medium px-4 py-2 rounded-lg transition disabled:opacity-50 ${
                       isConnected
                         ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         : "bg-zyntern-purple text-white hover:bg-zyntern-deep"
                     }`}
                   >
-                    {isConnected ? "Újrakapcsolás" : "Bekötés"}
-                  </a>
+                    {connecting === p.oauthParam
+                      ? "Kapcsolódás..."
+                      : isConnected
+                      ? "Újrakapcsolás"
+                      : "Bekötés"}
+                  </button>
                 )}
 
                 {/* Disconnect button */}

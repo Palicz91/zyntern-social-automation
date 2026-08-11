@@ -149,18 +149,40 @@ Deno.serve(async (req) => {
     }
 
     // 5. Generate content (Claude API + image service)
-    let copy: { linkedin: string; facebook: string; instagram: string };
+    let copy: { linkedin: string; facebook: string; instagram: string } | undefined;
     let imageUrl: string | null = null;
 
-    try {
-      copy = await generateCopy(body);
-    } catch (err) {
-      console.error("Claude API failed:", err);
-      copy = {
-        linkedin: `${body.job_title} pozíció - ${body.company_name}`,
-        facebook: `${body.job_title} pozíció - ${body.company_name}`,
-        instagram: `${body.job_title} pozíció - ${body.company_name}`,
-      };
+    const COPY_RETRIES = 2;
+    let lastCopyError: unknown;
+    for (let attempt = 0; attempt <= COPY_RETRIES; attempt++) {
+      try {
+        copy = await generateCopy(body);
+        break;
+      } catch (err) {
+        lastCopyError = err;
+        console.error(`Claude API attempt ${attempt + 1}/${COPY_RETRIES + 1} failed:`, err);
+        if (attempt < COPY_RETRIES) {
+          await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+        }
+      }
+    }
+
+    if (!copy) {
+      console.error("All Claude API attempts failed, inserting as failed");
+      const platforms = ["linkedin", "facebook_page", "instagram"] as const;
+      const failedRows = platforms.map((platform) => ({
+        job_id: job.id,
+        platform,
+        original_text: "",
+        image_url: null,
+        status: "failed" as const,
+        error_message: `Tartalom generálás sikertelen: ${lastCopyError instanceof Error ? lastCopyError.message : "Unknown error"}`,
+      }));
+      await supabase.from("social_posts").insert(failedRows);
+      return new Response(
+        JSON.stringify({ status: "error", message: "Tartalom generálás sikertelen", post_id: job.id }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     try {
@@ -188,6 +210,11 @@ Deno.serve(async (req) => {
 
     if (postsError) {
       console.error("Social posts insert failed:", postsError);
+      // T2.8: Clean up orphaned job row so portal can retry
+      const { error: deleteError } = await supabase.from("jobs").delete().eq("id", job.id);
+      if (deleteError) {
+        console.error("Orphaned job cleanup failed:", deleteError);
+      }
       return new Response(
         JSON.stringify({ status: "error", message: "Szerver hiba" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -326,7 +353,8 @@ TILTÓLISTA (szigorúan betartandó):
 - NE használd: "ne hagyd ki", "tökéletes lehetőség", "valóra válhat", "neked szól", "készen állsz?"
 - NE nyiss 🚀 emojival
 - NE ismételj adatot ami a képen van
-- NE írj üres motivációs mondatokat. Minden mondatban legyen gondolat.`;
+- NE írj üres motivációs mondatokat. Minden mondatban legyen gondolat.
+- NE állíts a cégről olyat ami nem szerepel a leírásban. Ha nem tudod milyen ott dolgozni, NE találd ki — írd azt amit tudsz.`;
 
   const userPrompt = `Írj social media posztokat az alábbi pozícióhoz. A posztok mellé egy vizuális kártyakép is tartozik ami tartalmazza az összes pozíció adatot — NE ismételd a szövegben amit a kép mutat.
 

@@ -22,13 +22,29 @@ CREATE POLICY "Authenticated users can read post_analytics"
   ON post_analytics FOR SELECT TO authenticated
   USING (true);
 
+-- Schedule health-alert daily at 07:00
+SELECT cron.schedule(
+  'health-alert',
+  '0 7 * * *',
+  $$
+  SELECT net.http_post(
+    url := current_setting('app.functions_url') || '/health-alert',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'x-cron-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1)
+    ),
+    body := '{}'::jsonb
+  );
+  $$
+);
+
 -- Schedule fetch-analytics daily at 06:00
 SELECT cron.schedule(
   'fetch-analytics',
   '0 6 * * *',
   $$
   SELECT net.http_post(
-    url := current_setting('app.functions_url') || '/functions/v1/fetch-analytics',
+    url := current_setting('app.functions_url') || '/fetch-analytics',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-cron-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1)

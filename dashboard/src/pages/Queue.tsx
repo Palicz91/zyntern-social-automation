@@ -35,7 +35,7 @@ export default function Queue() {
       .order("scheduled_at", { ascending: true });
 
     if (!error && data) {
-      setPosts(data as QueuedPost[]);
+      setPosts(data as unknown as QueuedPost[]);
     }
     setLoading(false);
   };

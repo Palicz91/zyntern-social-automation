@@ -46,6 +46,9 @@ VALUES
 ON CONFLICT (platform) DO NOTHING;
 
 -- T4.4: Modify approve_social_post to set status='queued' and compute scheduled_at
+-- Must DROP first: return type changed from social_posts to VOID
+DROP FUNCTION IF EXISTS approve_social_post(uuid, text);
+
 CREATE OR REPLACE FUNCTION approve_social_post(p_post_id UUID, p_text TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
@@ -87,8 +90,8 @@ BEGIN
     -- No rules: approve directly (legacy behavior)
     UPDATE social_posts
     SET status = 'approved',
-        modified_text = p_text,
-        approved_by = auth.uid()::TEXT,
+        modified_text = NULLIF(p_text, original_text),
+        approved_by = coalesce(auth.jwt() ->> 'email', 'dashboard'),
         approved_at = now(),
         retry_count = 0,
         next_retry_at = NULL
@@ -102,39 +105,52 @@ BEGIN
   v_window_start := (date_trunc('day', v_now AT TIME ZONE v_rule.timezone) + v_rule.window_start) AT TIME ZONE v_rule.timezone;
   v_window_end := (date_trunc('day', v_now AT TIME ZONE v_rule.timezone) + v_rule.window_end) AT TIME ZONE v_rule.timezone;
 
-  -- Count today's posted + queued for this platform
-  SELECT COUNT(*) INTO v_today_count
-  FROM social_posts
-  WHERE platform = v_platform
-    AND status IN ('posted', 'queued', 'approved', 'posting')
-    AND (posted_at >= v_today_start OR scheduled_at >= v_today_start);
-
-  -- Check daily cap
-  IF v_today_count >= v_rule.daily_cap THEN
-    -- Schedule for tomorrow's window start
-    v_next_slot := v_window_start + INTERVAL '1 day';
-  ELSE
-    -- Find last posted/scheduled time for this platform today
-    SELECT GREATEST(
-      COALESCE(MAX(posted_at), '1970-01-01'::TIMESTAMPTZ),
-      COALESCE(MAX(scheduled_at), '1970-01-01'::TIMESTAMPTZ)
-    ) INTO v_last_time
+  -- Walk forward day by day until we find a day under cap
+  LOOP
+    -- Count this day's posted + queued for this platform (day-bounded)
+    SELECT COUNT(*) INTO v_today_count
     FROM social_posts
     WHERE platform = v_platform
       AND status IN ('posted', 'queued', 'approved', 'posting')
-      AND (posted_at >= v_today_start OR scheduled_at >= v_today_start);
+      AND (
+        (posted_at    >= v_today_start AND posted_at    < v_today_start + INTERVAL '1 day') OR
+        (scheduled_at >= v_today_start AND scheduled_at < v_today_start + INTERVAL '1 day')
+      );
 
-    -- Next slot = last + gap, but not before window start, not before now
-    v_next_slot := GREATEST(
-      v_last_time + (v_rule.min_gap_minutes || ' minutes')::INTERVAL,
-      v_window_start,
-      v_now
+    EXIT WHEN v_today_count < v_rule.daily_cap;
+
+    -- This day is full, advance to next day
+    v_today_start := v_today_start + INTERVAL '1 day';
+    v_window_start := v_window_start + INTERVAL '1 day';
+    v_window_end := v_window_end + INTERVAL '1 day';
+
+    -- Safety: don't walk more than 14 days ahead
+    EXIT WHEN v_today_start > v_now + INTERVAL '14 days';
+  END LOOP;
+
+  -- Find last posted/scheduled time for this platform on the target day
+  SELECT GREATEST(
+    COALESCE(MAX(posted_at), '1970-01-01'::TIMESTAMPTZ),
+    COALESCE(MAX(scheduled_at), '1970-01-01'::TIMESTAMPTZ)
+  ) INTO v_last_time
+  FROM social_posts
+  WHERE platform = v_platform
+    AND status IN ('posted', 'queued', 'approved', 'posting')
+    AND (
+      (posted_at    >= v_today_start AND posted_at    < v_today_start + INTERVAL '1 day') OR
+      (scheduled_at >= v_today_start AND scheduled_at < v_today_start + INTERVAL '1 day')
     );
 
-    -- If past window end, move to tomorrow
-    IF v_next_slot > v_window_end THEN
-      v_next_slot := v_window_start + INTERVAL '1 day';
-    END IF;
+  -- Next slot = last + gap, but not before window start, not before now
+  v_next_slot := GREATEST(
+    v_last_time + (v_rule.min_gap_minutes || ' minutes')::INTERVAL,
+    v_window_start,
+    v_now
+  );
+
+  -- If past window end, move to next day's window start
+  IF v_next_slot > v_window_end THEN
+    v_next_slot := v_window_start + INTERVAL '1 day';
   END IF;
 
   -- T4.6: Check deadline overflow
@@ -145,8 +161,8 @@ BEGIN
   IF v_deadline IS NOT NULL AND (v_next_slot AT TIME ZONE v_rule.timezone)::DATE > v_deadline THEN
     UPDATE social_posts
     SET status = 'skipped',
-        modified_text = p_text,
-        approved_by = auth.uid()::TEXT,
+        modified_text = NULLIF(p_text, original_text),
+        approved_by = coalesce(auth.jwt() ->> 'email', 'dashboard'),
         approved_at = now(),
         error_message = 'Scheduled time would exceed job deadline (' || v_deadline || ')',
         retry_count = 0,
@@ -158,8 +174,8 @@ BEGIN
   -- Queue the post (reset retry state for re-approvals)
   UPDATE social_posts
   SET status = 'queued',
-      modified_text = p_text,
-      approved_by = auth.uid()::TEXT,
+      modified_text = NULLIF(p_text, original_text),
+      approved_by = coalesce(auth.jwt() ->> 'email', 'dashboard'),
       approved_at = now(),
       scheduled_at = v_next_slot,
       error_message = NULL,
@@ -216,7 +232,7 @@ SELECT cron.schedule(
   '*/5 * * * *',
   $$
   SELECT net.http_post(
-    url := current_setting('app.functions_url') || '/functions/v1/schedule-queue',
+    url := current_setting('app.functions_url') || '/schedule-queue',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-cron-secret', (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name = 'cron_secret' LIMIT 1)

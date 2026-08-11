@@ -99,21 +99,24 @@ Deno.serve(async (req) => {
 
     // Today's midnight in rule timezone, as UTC
     const todayStart = getMidnightUtc(now, rule.timezone);
+    const tomorrowStart = new Date(todayStart.getTime() + 86400000);
 
-    // Count today's posted + queued for this platform
+    // Count today's posted + queued for this platform (day-bounded)
     const { count: postedCount } = await supabase
       .from("social_posts")
       .select("id", { count: "exact", head: true })
       .eq("platform", rule.platform)
       .in("status", ["posted", "posting", "approved"])
-      .gte("posted_at", todayStart.toISOString());
+      .gte("posted_at", todayStart.toISOString())
+      .lt("posted_at", tomorrowStart.toISOString());
 
     const { count: queuedCount } = await supabase
       .from("social_posts")
       .select("id", { count: "exact", head: true })
       .eq("platform", rule.platform)
       .eq("status", "queued")
-      .gte("scheduled_at", todayStart.toISOString());
+      .gte("scheduled_at", todayStart.toISOString())
+      .lt("scheduled_at", tomorrowStart.toISOString());
 
     const todayCount = (postedCount ?? 0) + (queuedCount ?? 0);
 
@@ -173,29 +176,54 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    // Invoke post-to-social
-    const postRes = await fetch(
-      `${supabaseUrl}/functions/v1/post-to-social`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseKey}`,
+    // Invoke post-to-social, restore to queued on any failure
+    try {
+      const postRes = await fetch(
+        `${supabaseUrl}/functions/v1/post-to-social`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseKey}`,
+          },
+          body: JSON.stringify({ social_post_id: nextPost.id }),
         },
-        body: JSON.stringify({ social_post_id: nextPost.id }),
-      },
-    );
-
-    if (!postRes.ok) {
-      const errText = await postRes.text();
-      console.error(
-        `${rule.platform}: post-to-social failed (${postRes.status}):`,
-        errText,
       );
-      platformResult.errors.push(`post-to-social ${postRes.status}`);
-    } else {
-      platformResult.processed++;
-      console.log(`${rule.platform}: published ${nextPost.id}`);
+
+      if (!postRes.ok) {
+        const errText = await postRes.text();
+        console.error(
+          `${rule.platform}: post-to-social failed (${postRes.status}):`,
+          errText,
+        );
+        platformResult.errors.push(`post-to-social ${postRes.status}`);
+
+        await supabase
+          .from("social_posts")
+          .update({
+            status: "queued",
+            scheduled_at: new Date(
+              now.getTime() + rule.min_gap_minutes * 60000,
+            ).toISOString(),
+          })
+          .eq("id", nextPost.id);
+      } else {
+        platformResult.processed++;
+        console.log(`${rule.platform}: published ${nextPost.id}`);
+      }
+    } catch (err) {
+      console.error(`${rule.platform}: post-to-social threw:`, err);
+      platformResult.errors.push(`post-to-social network error`);
+
+      await supabase
+        .from("social_posts")
+        .update({
+          status: "queued",
+          scheduled_at: new Date(
+            now.getTime() + rule.min_gap_minutes * 60000,
+          ).toISOString(),
+        })
+        .eq("id", nextPost.id);
     }
 
     results.push(platformResult);

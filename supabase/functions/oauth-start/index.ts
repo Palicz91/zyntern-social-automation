@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isFlagEnabled } from "../_shared/flags.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,7 +50,11 @@ Deno.serve(async (req) => {
       const clientId = Deno.env.get("LINKEDIN_CLIENT_ID");
       if (!clientId) return respond(500, { error: "LINKEDIN_CLIENT_ID not configured" });
 
-      const scopes = ["openid", "profile", "w_member_social"].join(" ");
+      const orgMode = isFlagEnabled(Deno.env.get("LINKEDIN_ORG_MODE"));
+      const scopes = (orgMode
+        ? ["openid", "profile", "w_member_social", "w_organization_social", "r_organization_admin"]
+        : ["openid", "profile", "w_member_social"]
+      ).join(" ");
       const authUrl = new URL("https://www.linkedin.com/oauth/v2/authorization");
       authUrl.searchParams.set("response_type", "code");
       authUrl.searchParams.set("client_id", clientId);
@@ -62,9 +67,14 @@ Deno.serve(async (req) => {
       if (!appId) return respond(500, { error: "FACEBOOK_APP_ID not configured" });
 
       const scopes = [
+        "pages_show_list",
         "pages_manage_posts",
         "pages_read_engagement",
+        "read_insights",
+        "instagram_basic",
         "instagram_content_publish",
+        "instagram_manage_comments",
+        "instagram_manage_insights",
       ].join(",");
       const authUrl = new URL("https://www.facebook.com/v25.0/dialog/oauth");
       authUrl.searchParams.set("client_id", appId);

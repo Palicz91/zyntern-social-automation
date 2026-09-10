@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { isFlagEnabled } from "../_shared/flags.ts";
 
 const DASHBOARD_URL = Deno.env.get("DASHBOARD_URL") || "https://zyntern-social-dashboard.netlify.app";
 
@@ -89,27 +90,46 @@ async function handleLinkedInCallback(
     Date.now() + (tokenData.expires_in || 5184000) * 1000,
   ).toISOString();
 
+  const orgMode = isFlagEnabled(Deno.env.get("LINKEDIN_ORG_MODE"));
+
   let pageId: string | null = null;
-  try {
-    const orgRes = await fetch(
-      "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee",
-      {
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-          "Linkedin-Version": "202604",
-          "X-Restli-Protocol-Version": "2.0.0",
+  if (orgMode) {
+    try {
+      const orgRes = await fetch(
+        "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+        {
+          headers: {
+            Authorization: `Bearer ${tokenData.access_token}`,
+            "Linkedin-Version": "202604",
+            "X-Restli-Protocol-Version": "2.0.0",
+          },
         },
-      },
-    );
-    if (orgRes.ok) {
-      const orgData = await orgRes.json();
-      const firstOrg = orgData.elements?.[0];
-      if (firstOrg?.organization) {
-        pageId = firstOrg.organization.replace("urn:li:organization:", "");
+      );
+      if (orgRes.ok) {
+        const orgData = await orgRes.json();
+        const firstOrg = orgData.elements?.[0];
+        if (firstOrg?.organization) {
+          pageId = firstOrg.organization.replace("urn:li:organization:", "");
+        }
+      } else {
+        // A 403 here usually means the Community Management API product is not
+        // approved yet — that is a different problem from "member admins no org".
+        console.warn(
+          `LinkedIn organizationAcls failed: ${orgRes.status} ${await orgRes.text()}`,
+        );
       }
+    } catch (e) {
+      console.warn("Could not fetch LinkedIn organizations:", e);
     }
-  } catch (e) {
-    console.warn("Could not fetch LinkedIn organizations:", e);
+
+    if (!pageId) {
+      throw new Error(
+        "LinkedIn org mode is on but no administered organization was found for this member " +
+          "(check the function logs for the organizationAcls status — a 403 means the Community " +
+          "Management API product is not approved yet). The existing LinkedIn connection is " +
+          "unchanged, so posts keep going out on the previously connected identity.",
+      );
+    }
   }
 
   await supabase.from("social_tokens").upsert(
@@ -173,9 +193,33 @@ async function handleFacebookCallback(
   let pageId: string | null = null;
   let pageToken = userToken;
 
-  if (pagesRes.ok) {
+  const preferred = (Deno.env.get("FACEBOOK_PAGE_ID") ?? "").trim();
+
+  if (!pagesRes.ok) {
+    const errText = await pagesRes.text();
+    // Without this the pin below is silently skipped on exactly the path it exists for.
+    if (preferred) {
+      throw new Error(
+        `Facebook /me/accounts failed (${pagesRes.status}), so page ${preferred} could not be verified`,
+      );
+    }
+    console.warn(`Facebook /me/accounts failed: ${pagesRes.status} ${errText}`);
+  } else {
     const pagesData = await pagesRes.json();
-    const firstPage = pagesData.data?.[0];
+    const pages = pagesData.data || [];
+    const firstPage = preferred
+      ? pages.find((p: { id: string }) => p.id === preferred)
+      : pages[0];
+    if (preferred && !firstPage) {
+      throw new Error(
+        `Facebook page ${preferred} not found in /me/accounts for this user`,
+      );
+    }
+    if (!firstPage) {
+      console.warn(
+        "Facebook connected but /me/accounts returned no pages — page_id stays null and posting will fail",
+      );
+    }
     if (firstPage) {
       pageId = firstPage.id;
       pageToken = firstPage.access_token;

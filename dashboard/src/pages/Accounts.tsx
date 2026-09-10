@@ -135,8 +135,16 @@ export default function Accounts() {
       <div className="grid gap-4">
         {PLATFORMS.map((p) => {
           const token = getTokenForPlatform(p.key);
-          const isConnected = !!token;
-          const status = token?.status || "not_connected";
+          // A facebook_page row with no page_id cannot publish anything, so it must
+          // not render as connected. (instagram is already gated on account_id in
+          // getTokenForPlatform; linkedin legitimately has a null page_id when it
+          // posts as a personal profile.)
+          const unusableFacebook = p.key === "facebook_page" && !!token &&
+            !token.page_id;
+          const isConnected = !!token && !unusableFacebook;
+          const status = unusableFacebook
+            ? "not_connected"
+            : token?.status || "not_connected";
 
           return (
             <div
@@ -169,8 +177,14 @@ export default function Accounts() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-gray-400">
-                    {p.note || "Nincs bekötve"}
+                  <p
+                    className={`text-sm ${
+                      unusableFacebook ? "text-red-600" : "text-gray-400"
+                    }`}
+                  >
+                    {unusableFacebook
+                      ? "Bekötve, de nem található Facebook oldal — a posztolás így nem fog működni. Kösd be újra, és válaszd ki az oldalt."
+                      : p.note || "Nincs bekötve"}
                   </p>
                 )}
               </div>

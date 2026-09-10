@@ -1,11 +1,22 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ALLOWED_IMAGE_HOSTS = new Set([
-  "bnumwujvaribzfexpmmc.supabase.co",
-  "lh3.googleusercontent.com",
-  "logo.clearbit.com",
-  "img.logo.dev",
-]);
+const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL");
+let SUPABASE_HOST: string;
+try {
+  SUPABASE_HOST = new URL(SUPABASE_URL_ENV!).hostname;
+} catch {
+  // Module scope: this throw kills the isolate before Deno.serve registers, so the
+  // message is the only diagnostic anyone gets. Make it say what is actually wrong.
+  throw new Error(
+    `FATAL: SUPABASE_URL is missing or not a valid URL (got: ${SUPABASE_URL_ENV ?? "<unset>"}) — post-to-social cannot build its image host allowlist`,
+  );
+}
+// post.image_url is only ever the image service's Supabase storage URL or null
+// (publish-job/index.ts:205 <- :447, and :177 for the null case), so the three
+// third-party hosts that used to be here were never reachable on this path. One of
+// them (logo.clearbit.com) is a redirector, which made this allowlist a stepping
+// stone rather than a control. Storage host only.
+const ALLOWED_IMAGE_HOSTS = new Set([SUPABASE_HOST]);
 
 function isAllowedImageHost(url: string): boolean {
   try {
@@ -291,23 +302,33 @@ async function postToLinkedIn(
         imageUrn = initData.value?.image;
 
         if (uploadUrl && imageUrn) {
-          // Step 2: Download image
+          // Step 2: Download image. fetch() follows redirects, and the allowlist
+          // check upstream only ever saw the initial URL — so re-check where we
+          // actually landed before these bytes are forwarded to LinkedIn.
           const imgRes = await fetch(imageUrl);
-          const imgBlob = await imgRes.blob();
 
-          // Step 3: Upload to LinkedIn
-          const uploadRes = await fetch(uploadUrl, {
-            method: "PUT",
-            headers: {
-              Authorization: `Bearer ${token.access_token}`,
-              "Content-Type": "image/png",
-            },
-            body: imgBlob,
-          });
-
-          if (!uploadRes.ok) {
-            console.warn(`LinkedIn image PUT failed: ${uploadRes.status}`);
+          if (!isAllowedImageHost(imgRes.url)) {
+            console.warn(
+              `Blocked image redirect to disallowed host: ${imgRes.url}`,
+            );
             imageUrn = undefined;
+          } else {
+            const imgBlob = await imgRes.blob();
+
+            // Step 3: Upload to LinkedIn
+            const uploadRes = await fetch(uploadUrl, {
+              method: "PUT",
+              headers: {
+                Authorization: `Bearer ${token.access_token}`,
+                "Content-Type": "image/png",
+              },
+              body: imgBlob,
+            });
+
+            if (!uploadRes.ok) {
+              console.warn(`LinkedIn image PUT failed: ${uploadRes.status}`);
+              imageUrn = undefined;
+            }
           }
         }
       }

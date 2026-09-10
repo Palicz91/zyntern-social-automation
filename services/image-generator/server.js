@@ -3,6 +3,12 @@ const puppeteer = require("puppeteer-core");
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
 const path = require("path");
+const {
+  parseExtraHosts,
+  buildAllowedHosts,
+  isAllowedImageUrl: isAllowedImageUrlIn,
+  safeLogValue,
+} = require("./lib/image-hosts");
 
 // --- Config ---
 const PORT = 3847;
@@ -15,12 +21,20 @@ const BUCKET = "social-images";
 const MAX_CONCURRENT = 3;
 const RENDER_TIMEOUT_MS = 20_000;
 
-const ALLOWED_IMAGE_HOSTS = new Set([
-  "bnumwujvaribzfexpmmc.supabase.co",
-  "lh3.googleusercontent.com",
-  "logo.clearbit.com",
-  "img.logo.dev",
-]);
+let SUPABASE_HOST = null;
+if (SUPABASE_URL) {
+  try {
+    SUPABASE_HOST = new URL(SUPABASE_URL).hostname;
+  } catch {
+    console.error(`FATAL: SUPABASE_URL is not a valid URL: ${SUPABASE_URL}. Exiting.`);
+    process.exit(1);
+  }
+}
+const EXTRA_IMAGE_HOSTS = parseExtraHosts(process.env.EXTRA_IMAGE_HOSTS);
+const ALLOWED_IMAGE_HOSTS = buildAllowedHosts({
+  supabaseHost: SUPABASE_HOST,
+  extraHosts: EXTRA_IMAGE_HOSTS,
+});
 
 if (!API_KEY) {
   console.error("FATAL: IMAGE_API_KEY is not set. Exiting.");
@@ -80,21 +94,19 @@ async function ensureBucket() {
 }
 
 function isAllowedImageUrl(url) {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" && ALLOWED_IMAGE_HOSTS.has(parsed.hostname);
-  } catch {
-    return false;
-  }
+  return isAllowedImageUrlIn(url, ALLOWED_IMAGE_HOSTS);
 }
 
 // --- Image generation ---
 async function renderCard(data) {
   if (data.logo_url && !isAllowedImageUrl(data.logo_url)) {
+    console.warn(`Dropped logo_url (host not allowed): ${safeLogValue(data.logo_url)}`);
     data = { ...data, logo_url: null };
   }
   if (data.cover_image_url && !isAllowedImageUrl(data.cover_image_url)) {
+    console.warn(
+      `Dropped cover_image_url (host not allowed): ${safeLogValue(data.cover_image_url)}`
+    );
     data = { ...data, cover_image_url: null };
   }
 
@@ -260,6 +272,7 @@ async function main() {
     console.log(`Image generator running on port ${PORT}`);
     console.log(`Chromium: ${CHROMIUM_PATH}`);
     console.log(`Supabase: ${SUPABASE_URL ? "connected" : "local mode"}`);
+    console.log(`Allowed image hosts: ${[...ALLOWED_IMAGE_HOSTS].join(", ")}`);
   });
 }
 

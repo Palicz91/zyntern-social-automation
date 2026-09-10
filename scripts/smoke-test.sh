@@ -8,6 +8,10 @@ set -euo pipefail
 : "${SUPABASE_SERVICE_ROLE_KEY:?SUPABASE_SERVICE_ROLE_KEY is required}"
 : "${API_AUTH_TOKEN:?API_AUTH_TOKEN is required}"
 
+# The logo below is on zyntern.com, so EXTRA_IMAGE_HOSTS must include zyntern.com
+# for the card to render with a logo. Without it the card still renders (letter
+# fallback) and this script still passes — check the image service log for
+# "Dropped logo_url".
 FUNCTIONS_URL="${SUPABASE_URL}/functions/v1"
 FAKE_JOB_ID="smoke-test-$(date +%s)"
 
@@ -28,7 +32,7 @@ PUBLISH_RESPONSE=$(curl -s -w "\n%{http_code}" \
     \"location\": \"Budapest\",
     \"job_url\": \"https://zyntern.hu/test\",
     \"description\": \"This is a smoke test job posting. It tests the end-to-end publishing flow.\",
-    \"logo_url\": \"https://bnumwujvaribzfexpmmc.supabase.co/storage/v1/object/public/assets/logo.png\"
+    \"logo_url\": \"https://zyntern.com/favicons/apple-icon-152x152.png\"
   }")
 
 HTTP_CODE=$(echo "$PUBLISH_RESPONSE" | tail -1)

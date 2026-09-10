@@ -229,7 +229,17 @@
 function render(data) {
   // Cover image
   if (data.cover_image_url) {
-    document.getElementById('cover').style.backgroundImage = `url(${data.cover_image_url})`;
+    // Escape before it reaches a CSS url() sink: unencoded ( ) , or quotes let an
+    // allowlisted URL smuggle a second, non-allowlisted background fetch.
+    const CSS_URL_ESCAPES = {
+      '"': '%22', "'": '%27', '(': '%28', ')': '%29',
+      ',': '%2C', '\\': '%5C', ' ': '%20'
+    };
+    const safeCover = String(data.cover_image_url).replace(
+      /["'()\\,\s]/g,
+      (c) => CSS_URL_ESCAPES[c] || encodeURIComponent(c)
+    );
+    document.getElementById('cover').style.backgroundImage = `url("${safeCover}")`;
   }
 
   // Logo

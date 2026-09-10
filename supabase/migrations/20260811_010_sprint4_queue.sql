@@ -125,7 +125,18 @@ BEGIN
     v_window_end := v_window_end + INTERVAL '1 day';
 
     -- Safety: don't walk more than 14 days ahead
-    EXIT WHEN v_today_start > v_now + INTERVAL '14 days';
+    IF v_today_start > v_now + INTERVAL '14 days' THEN
+      UPDATE social_posts
+      SET status = 'skipped',
+          modified_text = NULLIF(p_text, original_text),
+          approved_by = coalesce(auth.jwt() ->> 'email', 'dashboard'),
+          approved_at = now(),
+          error_message = 'Queue depth exceeded: all days within 14-day window are at cap',
+          retry_count = 0,
+          next_retry_at = NULL
+      WHERE id = p_post_id;
+      RETURN;
+    END IF;
   END LOOP;
 
   -- Find last posted/scheduled time for this platform on the target day

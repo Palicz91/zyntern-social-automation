@@ -101,24 +101,25 @@ Deno.serve(async (req) => {
     const todayStart = getMidnightUtc(now, rule.timezone);
     const tomorrowStart = new Date(todayStart.getTime() + 86400000);
 
-    // Count today's posted + queued for this platform (day-bounded)
+    // Count what has actually published today
     const { count: postedCount } = await supabase
       .from("social_posts")
       .select("id", { count: "exact", head: true })
       .eq("platform", rule.platform)
-      .in("status", ["posted", "posting", "approved"])
+      .eq("status", "posted")
       .gte("posted_at", todayStart.toISOString())
       .lt("posted_at", tomorrowStart.toISOString());
 
-    const { count: queuedCount } = await supabase
+    // Count in-flight (claimed but not yet confirmed — no posted_at yet, key off approved_at)
+    const { count: inFlightCount } = await supabase
       .from("social_posts")
       .select("id", { count: "exact", head: true })
       .eq("platform", rule.platform)
-      .eq("status", "queued")
-      .gte("scheduled_at", todayStart.toISOString())
-      .lt("scheduled_at", tomorrowStart.toISOString());
+      .in("status", ["approved", "posting"])
+      .gte("approved_at", todayStart.toISOString())
+      .lt("approved_at", tomorrowStart.toISOString());
 
-    const todayCount = (postedCount ?? 0) + (queuedCount ?? 0);
+    const todayCount = (postedCount ?? 0) + (inFlightCount ?? 0);
 
     if (todayCount >= rule.daily_cap) {
       console.log(
